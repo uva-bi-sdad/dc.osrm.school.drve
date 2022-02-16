@@ -5,22 +5,22 @@ date: "11/18/2021"
 output: html_document
 dataset:
   citation:
-      title: "Social Data Commons: your title here"
+      title: "Social Data Commons: Education & Training: School Drive Times"
       subtitle: ""
-      dsDescriptionValue: "Virginia Standards of Learning Test Scores collected by the Virginia Department of Education (VDOE)"
+      dsDescriptionValue: "Drive Times to Post-HS Education using Open Source Routing Machine (OSRM)"
       subject: "Social Sciences (Ex: Education, Politics, Sociology, Economics, Psychology)"
-      productionDate: "2021-11-17"
-      timePeriodCoveredStart: "2015-01-01"
-      timePeriodCoveredEnd: "2021-01-01"
+      productionDate: "2022-02-16"
+      timePeriodCoveredStart: "2021-10-25"
+      timePeriodCoveredEnd: "2021-10-25"
       dataSources:
+        - "OSRM"
         - "ACS"
-        - "County Health Rankings"
       author:
-        - authorName: "Schroeder, Aaron"
+        - authorName: "Alerte, Zachary"
           authorAffiliation: "Univeristy of Virginia"
         - authorName: "Charankevich, Hanna"
           authorAffiliation: "Univeristy of Virginia"
-        - authorName: "Niagra, Bob"
+        - authorName: "Schroeder, Aaron"
           authorAffiliation: "Univeristy of Waterloo"
       datasetContact:
         - datasetContactEmail: "ads7fg@virginia.edu"
@@ -32,6 +32,7 @@ dataset:
     geographicUnit:
       - "State Health District"
       - "County"
+      - "Tract"
 ---
 
 ```{r setup, include=FALSE}

@@ -1,3 +1,3 @@
-# YOUR_REPO_NAME Ex) dc.template
+# dc.osrm.school.drive
 
-Allows user to easily get YOUR_DATA data from the SDAD Data Commons.  Data can be provided directly or in a file.
+Allows user to easily get drive time to Virginia post-HS education data from the SDAD Data Commons.  Data can be provided directly or in a file.
