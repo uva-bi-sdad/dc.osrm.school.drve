@@ -3,6 +3,8 @@ title: "post_hs"
 output: html_document
 ---
 
+# load packages
+
 ```{r}
 # R imports - might have to install some
 library(sf)
@@ -14,252 +16,41 @@ library(tigris)
 library(rmapshaper)
 library(matrixStats)
 library(SpatialAcc)
-library(reticulate)
 
 library(tidygeocoder)
 library(osrm)
-
+library(data.table)
 ```
 
 
-# load packages in python
-```{python}
-# generic imports
-import numpy as np
-import pandas as pd
-
-# geospatial imports
-import geopandas as gpd
-import pygeos
-from pygeos import box, area, intersection
-
-# FCA pakage
-from access import Access, weights
-```
-
+# read in our data
 
 ```{r}
-tract_data <- matrix(, nrow = 0, ncol = 8)
-county_data <- matrix(, nrow = 0, ncol = 8)
-hd_data <- matrix(, nrow = 0, ncol = 8)
-for (i in 2015:2019)
-{
-  # tracts
-  va.tr.post_edu <- get_acs(geography = "tract",
-                            year = i,
-                            variables = c(tpop = "B06009_001",
-                                          some_college = "B06009_004",
-                                          bach = "B06009_005",
-                                          grad_prof = "B06009_006"),
-                            state = "VA",
-                            survey = "acs5",
-                            output = "wide",
-                            geometry = TRUE)
-  
-  va.tr.post_edu <- va.tr.post_edu %>%
-    mutate(perc_post_hs_edu = (some_collegeE + bachE + grad_profE) / tpopE,
-           num_post_hs_edu = some_collegeE + bachE + grad_profE) %>%
-    select(-c(tpopE, tpopM, some_collegeE, some_collegeM, bachE, bachM, grad_profE, grad_profM)) %>%
-    st_drop_geometry()
-  
-  # counties
-  va.ct.post_edu <- get_acs(geography = "county",
-                            year = i,
-                            variables = c(tpop = "B06009_001", # number respondents to these quetions?
-                                          some_college = "B06009_004",
-                                          bach = "B06009_005",
-                                          grad_prof = "B06009_006"),
-                            state = "VA",
-                            survey = "acs5",
-                            output = "wide",
-                            geometry = TRUE)
-  
-  va.ct.post_edu <- va.ct.post_edu %>%
-    mutate(perc_post_hs_edu = (some_collegeE + bachE + grad_profE) / tpopE,
-           num_post_hs_edu = some_collegeE + bachE + grad_profE) %>%
-    select(-c(tpopE, tpopM, some_collegeE, some_collegeM, bachE, bachM, grad_profE, grad_profM)) %>%
-    st_drop_geometry()
-  
-  # health districts
-  con <- get_db_conn(db_pass = "rsu8zvrsu8zv")
-  health_district_counties <- st_read(con, query = "SELECT * FROM dc_common.va_hdct_sdad_2021_health_district_counties")
-  dbDisconnect(con)
-  
-  va.hd.post_edu <- get_acs(geography = "county",
-                              year = i,
-                              variables = c(tpop = "B06009_001", # number respondents to these quetions?
-                                            some_college = "B06009_004",
-                                            bach = "B06009_005",
-                                            grad_prof = "B06009_006"),
-                              state = "VA",
-                              survey = "acs5",
-                              output = "wide",
-                              geometry = TRUE)
-  
-  va.hd.post_edu <- st_drop_geometry(va.hd.post_edu) %>%
-    merge(health_district_counties[, c("geoid_county", "region_name", "geoid")], by.x = "GEOID", by.y = "geoid_county") %>%
-    group_by(region_name) %>%
-    summarise(tpopE = sum(tpopE),
-              some_collegeE = sum(some_collegeE),
-              bachE = sum(bachE),
-              grad_profE = sum(grad_profE)) %>%
-    mutate(perc_post_hs_edu = (some_collegeE + bachE + grad_profE) / tpopE,
-           num_post_hs_edu = some_collegeE + bachE + grad_profE) %>%
-    select(region_name, perc_post_hs_edu, num_post_hs_edu) %>%
-    merge(health_district_counties[, c("region_name", "geoid")], by = "region_name", all.x = TRUE) %>%
-    rename(NAME = geoid)
-    
-  va.hd.post_edu <- va.hd.post_edu[!duplicated(va.hd.post_edu),]
-  
-  va.tr.post_edu.2 <- va.tr.post_edu %>% 
-    gather(measure, value, c(perc_post_hs_edu, num_post_hs_edu)) %>%
-    rename(geoid = GEOID,
-           region_name = NAME) %>%
-    mutate(year = as.character(i),
-           measure_type = ifelse(measure == "perc_post_hs_edu", "percentage", "count"),
-           measure_units = as.character(NA),
-           region_type = "tract") %>%
-    relocate("geoid", "region_type", "region_name", "year", "measure", "value", "measure_type", "measure_units")
-  
-  va.ct.post_edu.2 <- va.ct.post_edu %>% 
-    gather(measure, value, c(perc_post_hs_edu, num_post_hs_edu)) %>%
-    rename(geoid = GEOID,
-           region_name = NAME) %>%
-    mutate(year = as.character(i),
-           measure_type = ifelse(measure == "perc_post_hs_edu", "percentage", "count"),
-           measure_units = as.character(NA),
-           region_type = "county") %>%
-    relocate("geoid", "region_type", "region_name", "year", "measure", "value", "measure_type", "measure_units")
-  
-  va.hd.post_edu.2 <- va.hd.post_edu %>% 
-    gather(measure, value, c(perc_post_hs_edu, num_post_hs_edu)) %>%
-    rename(geoid = NAME) %>%
-    mutate(year = as.character(i),
-           measure_type = ifelse(measure == "perc_post_hs_edu", "percentage", "count"),
-           measure_units = as.character(NA),
-           region_type = "health district") %>%
-    relocate("geoid", "region_type", "region_name", "year", "measure", "value", "measure_type", "measure_units")
-  
-  tract_data <- rbind(tract_data, va.tr.post_edu.2)
-  county_data <- rbind(county_data, va.ct.post_edu.2)
-  hd_data <- rbind(hd_data, va.hd.post_edu.2)
-}
-
-source("~/git/VDH/src/helper_functions.R")
-con <- get_db_conn(db_pass = "rsu8zvrsu8zv")
-dc_dbWriteTable(con, "dc_education_training", "va_tr_acs_2015_2019_post_hs_education", va.tr.post_edu.2)
-dc_dbWriteTable(con, "dc_education_training", "va_ct_acs_2015_2019_post_hs_education", va.ct.post_edu.2)
-dc_dbWriteTable(con, "dc_education_training", "va_hd_acs_2015_2019_post_hs_education", va.hd.post_edu.2)
-dbDisconnect(con)
-```
-
-
-```{r}
-va.tr.post_edu.2 <- va.tr.post_edu %>% 
-  gather(measure, value, c(perc_post_hs_edu, num_post_hs_edu)) %>%
-  rename(geoid = GEOID,
-         region_name = NAME) %>%
-  mutate(year = "2019",
-         measure_type = ifelse(measure == "perc_post_hs_edu", "percentage", "count"),
-         measure_units = as.character(NA),
-         region_type = "tract") %>%
-  relocate("geoid", "region_type", "region_name", "year", "measure", "value", "measure_type", "measure_units")
-
-va.ct.post_edu.2 <- va.ct.post_edu %>% 
-  gather(measure, value, c(perc_post_hs_edu, num_post_hs_edu)) %>%
-  rename(geoid = GEOID,
-         region_name = NAME) %>%
-  mutate(year = "2019",
-         measure_type = ifelse(measure == "perc_post_hs_edu", "percentage", "count"),
-         measure_units = as.character(NA),
-         region_type = "county") %>%
-  relocate("geoid", "region_type", "region_name", "year", "measure", "value", "measure_type", "measure_units")
-
-va.hd.post_edu.2 <- va.hd.post_edu %>% 
-  gather(measure, value, c(perc_post_hs_edu, num_post_hs_edu)) %>%
-  rename(geoid = NAME) %>%
-  mutate(year = "2019",
-         measure_type = ifelse(measure == "perc_post_hs_edu", "percentage", "count"),
-         measure_units = as.character(NA),
-         region_type = "health district") %>%
-  relocate("geoid", "region_type", "region_name", "year", "measure", "value", "measure_type", "measure_units")
-
-```
-
-
-```{r}
-source("~/git/VDH/src/helper_functions.R")
-con <- get_db_conn(db_pass = "rsu8zvrsu8zv")
-dc_dbWriteTable(con, "dc_education_training", "va_tr_sdad_2021_post_hs_education", va.tr.post_edu.2)
-dc_dbWriteTable(con, "dc_education_training", "va_ct_sdad_2021_post_hs_education", va.ct.post_edu.2)
-dc_dbWriteTable(con, "dc_education_training", "va_hd_sdad_2021_post_hs_education", va.hd.post_edu.2)
-dbDisconnect(con)
-```
-
-
-# OTHER EDUCATION STUFF FOR HANNA!!
-```{r}
-# /project/biocomplexity/sdad/projects_data/mc/data_commons/dc_education_training/
-
-tr_trade <- fread("/project/biocomplexity/sdad/projects_data/mc/data_commons/dc_education_training/va_tr_nces_2019_trade_schools.csv")
-tr_2year <- fread("/project/biocomplexity/sdad/projects_data/mc/data_commons/dc_education_training/va_tr_nces_2019_2year_colleges.csv")
-tr_4year <- fread("/project/biocomplexity/sdad/projects_data/mc/data_commons/dc_education_training/va_tr_nces_2019_4year_colleges.csv")
-ct_trade <- fread("/project/biocomplexity/sdad/projects_data/mc/data_commons/dc_education_training/va_ct_nces_2019_trade_schools.csv")
-ct_2year <- fread("/project/biocomplexity/sdad/projects_data/mc/data_commons/dc_education_training/va_ct_nces_2019_2year_colleges.csv")
-ct_4year <- fread("/project/biocomplexity/sdad/projects_data/mc/data_commons/dc_education_training/va_ct_nces_2019_4year_colleges.csv")
-
-datasets = list(tr_trade, tr_2year, tr_4year, ct_trade, ct_2year, ct_4year)
-for (i in 1:6)
-{
-datasets[[i]]$perc_3sfca <- ecdf(datasets[[i]]$`3sfca_capacity`)(datasets[[i]]$`3sfca_capacity`)
-datasets[[i]]$perc_2sfca30 <- ecdf(datasets[[i]]$`2sfca30_capacity`)(datasets[[i]]$`2sfca30_capacity`)
-datasets[[i]] <- datasets[[i]] %>%
-  gather(measure, value, c(`3sfca_capacity`, `2sfca30_capacity`, norm_3sfca, norm_2sfca, college_capacity, perc_3sfca, perc_2sfca30)) %>%
-  mutate(year = "2019",
-         measure_type = ifelse(measure %in% c("perc_2sfca30", "perc_3sfca"), "percentile", ifelse(measure == "college_capacity", "count", "index")),
-         measure_units = as.character(NA),
-         region_type = "tract",
-         geoid = as.character(geoid)) %>%
-  relocate("geoid", "region_type", "region_name", "year", "measure", "value", "measure_type", "measure_units")
-}
-
-source("~/git/VDH/src/helper_functions.R")
-con <- get_db_conn(db_pass = "rsu8zvrsu8zv")
-# county
-dc_dbWriteTable(con, "dc_education_training", "va_tr_nces_2019_trade_schools_access_scores", datasets[[1]])
-dc_dbWriteTable(con, "dc_education_training", "va_tr_nces_2019_2year_colleges_access_scores", datasets[[2]])
-dc_dbWriteTable(con, "dc_education_training", "va_tr_nces_2019_4year_colleges_access_scores", datasets[[3]])
-
-# tract
-dc_dbWriteTable(con, "dc_education_training", "va_ct_nces_2019_trade_schools_access_scores", datasets[[4]])
-dc_dbWriteTable(con, "dc_education_training", "va_ct_nces_2019_2year_colleges_access_scores", datasets[[5]])
-dc_dbWriteTable(con, "dc_education_training", "va_ct_nces_2019_4year_colleges_access_scores", datasets[[6]])
-dbDisconnect(con)
-```
-
-
-```{r}
-trade_schools <- read.csv("less_two_geoid_ct.csv")
+trade_schools <- fread("/project/biocomplexity/sdad/projects_data/mc/data_commons/dc_education_training/va_post_hs_education/less_two_geoid_ct.csv")
 trade_schools <- trade_schools[, c("tot_enrol", "latitude", "longitude", "geoid")]
-trade_schools
 
-two_year_colleges <- read.csv("two_year_geoid_ct.csv")
+two_year_colleges <- fread("/project/biocomplexity/sdad/projects_data/mc/data_commons/dc_education_training/va_post_hs_education/two_year_geoid_ct.csv")
 two_year_colleges <- two_year_colleges[, c("tot_enrol", "latitude", "longitude", "geoid")]
-two_year_colleges
 
-four_year_colleges <- read.csv("four_year_geoid_ct.csv")
+four_year_colleges <- fread("/project/biocomplexity/sdad/projects_data/mc/data_commons/dc_education_training/va_post_hs_education/four_year_geoid_ct.csv")
 four_year_colleges <- four_year_colleges[, c("tot_enrol", "latitude", "longitude", "geoid")]
-four_year_colleges
 ```
 
+### step 1: start with health districts
 
 ```{r}
+health_district <- read.csv("/project/biocomplexity/sdad/projects_data/vdh/va_county_to_hd.csv")
+health_district$county_id <- as.character(health_district$county_id)
+
 con <- get_db_conn(db_pass = "rsu8zvrsu8zv")
-health_district_geoids <- st_read(con, query = "SELECT * FROM dc_common.va_hd_sdad_2021_virginia_health_district_geoids")
-dbDisconnect(con)
-trade_hd_supply <- merge(trade_schools, health_district[, c("county_id", "health_district")], by.x = "geoid", by.y = "county_id")
-two_year_hd_supply <- merge(two_year_colleges, health_district[, c("county_id", "health_district")], by.x = "geoid", by.y = "county_id")
-four_year_hd_supply <- merge(four_year_colleges, health_district[, c("county_id", "health_district")], by.x = "geoid", by.y = "county_id")
+health_district_geoids <- st_read(con, query = "SELECT * FROM dc_geographies.va_hd_vdh_2021_health_district_geo_names")
+DBI::dbDisconnect(con)
+
+health_district_2 <- left_join(health_district, health_district_geoids, by = c("health_district" = "region_name"))
+
+trade_hd_supply <- merge(trade_schools %>% mutate(geoid = as.character(geoid)), health_district_2[, c("county_id", "health_district", "geoid")], by.x = "geoid", by.y = "county_id")
+two_year_hd_supply <- merge(two_year_colleges %>% mutate(geoid = as.character(geoid)), health_district_2[, c("county_id", "health_district", "geoid")], by.x = "geoid", by.y = "county_id")
+four_year_hd_supply <- merge(four_year_colleges %>% mutate(geoid = as.character(geoid)), health_district_2[, c("county_id", "health_district", "geoid")], by.x = "geoid", by.y = "county_id")
 
 health_district$county_id <- as.character(health_district$county_id)
 
@@ -274,9 +65,9 @@ va.co <- get_acs(geography = "county",
 va.co.utm <- st_transform(va.co, crs = "+proj=longlat +datum=WGS84")
 va.co.utm <- va.co.utm[!st_is_empty(va.co.utm),]
 
-new_demand <- left_join(va.co.utm, health_district[, c("county_id", "health_district")], by = c("GEOID" = "county_id"))
+new_demand <- left_join(va.co.utm, health_district_2[, c("county_id", "health_district", "geoid")], by = c("GEOID" = "county_id"))
 new_demand <- new_demand  %>%
-  group_by(health_district) %>%
+  group_by(health_district, geoid) %>%
   summarise(geometry = sf::st_union(geometry),
             tpop = sum(tpopE)) %>%
   ungroup()
@@ -286,8 +77,8 @@ new_demand$longitude = st_coordinates(new_demand$centroid)[,1]
 new_demand$latitude = st_coordinates(new_demand$centroid)[,2]
 ```
 
+# trade schools drive times
 
-# trade schools
 ```{r}
 supply <- trade_hd_supply
 
@@ -334,8 +125,8 @@ colnames(trade_times) <- c("origin", "dest", "cost")
 trade_times$origin <- rep(new_demand$health_district, times = dim(supply)[1])
 ```
 
+# 2-year colleges drive times
 
-# 2-year colleges
 ```{r}
 supply <- two_year_hd_supply
 
@@ -382,8 +173,8 @@ colnames(twoyear_times) <- c("origin", "dest", "cost")
 twoyear_times$origin <- rep(new_demand$health_district, times = dim(supply)[1])
 ```
 
+# 4-year colleges - drive times
 
-# 4-year colleges
 ```{r}
 supply <- four_year_hd_supply
 
@@ -430,249 +221,10 @@ colnames(fouryear_times) <- c("origin", "dest", "cost")
 fouryear_times$origin <- rep(new_demand$health_district, times = dim(supply)[1])
 ```
 
+# getting the data in the correct format
+# do we look at mean and median drive times to 2-year colleges, 4-year colleges, and trade schools for all 3 levels of geography
 
-# Access object creation
-```{python}
-# load in times matrix - converting columns to integers
-times = r.trade_times
-times.origin = times.origin
-times.dest = times.dest
-
-# load in supply matrix - converting columns to integers
-supply = r.trade_hd_supply
-supply['GEOID'] = supply.health_district
-
-# load in demand matrix - converting columns to integers
-demand = r.new_demand
-demand['GEOID'] = demand.health_district
-
-# create Access object
-A = Access(demand_df = demand,
-           demand_index = "GEOID",
-           demand_value = "tpop",
-           supply_df = supply,
-           supply_index = "GEOID",
-           supply_value = "tot_enrol",
-           cost_df = times,
-           cost_origin = "origin",
-           cost_dest = "dest",
-           cost_name = "cost",
-           neighbor_cost_df = times,
-           neighbor_cost_origin = "origin",
-           neighbor_cost_dest = "dest",
-           neighbor_cost_name = "cost")
-
-fn30 = weights.step_fn({10: 1, 20: 0.68, 30: 0.22})
-
-# obtain fcas
-info_2sefca = A.enhanced_two_stage_fca(name = "2sefca30", weight_fn = fn30)
-info_3sfca = A.three_stage_fca(name = "3sfca")
-
-# save data into access_df
-trade_school_access_df = A.norm_access_df
-```
-
-
-```{python}
-# load in times matrix - converting columns to integers
-times = r.twoyear_times
-times.origin = times.origin
-times.dest = times.dest
-
-# load in supply matrix - converting columns to integers
-supply = r.two_year_hd_supply
-supply['GEOID'] = supply.health_district
-
-# load in demand matrix - converting columns to integers
-demand = r.new_demand
-demand['GEOID'] = demand.health_district
-
-# create Access object
-A = Access(demand_df = demand,
-           demand_index = "GEOID",
-           demand_value = "tpop",
-           supply_df = supply,
-           supply_index = "GEOID",
-           supply_value = "tot_enrol",
-           cost_df = times,
-           cost_origin = "origin",
-           cost_dest = "dest",
-           cost_name = "cost",
-           neighbor_cost_df = times,
-           neighbor_cost_origin = "origin",
-           neighbor_cost_dest = "dest",
-           neighbor_cost_name = "cost")
-
-fn30 = weights.step_fn({10: 1, 20: 0.68, 30: 0.22})
-
-# obtain fcas
-info_2sefca = A.enhanced_two_stage_fca(name = "2sefca30", weight_fn = fn30)
-info_3sfca = A.three_stage_fca(name = "3sfca")
-
-# save data into access_df
-two_year_access_df = A.norm_access_df
-```
-
-
-```{python}
-# load in times matrix - converting columns to integers
-times = r.fouryear_times
-times.origin = times.origin
-times.dest = times.dest
-
-# load in supply matrix - converting columns to integers
-supply = r.four_year_hd_supply
-supply['GEOID'] = supply.health_district
-
-# load in demand matrix - converting columns to integers
-demand = r.new_demand
-demand['GEOID'] = demand.health_district
-
-# create Access object
-A = Access(demand_df = demand,
-           demand_index = "GEOID",
-           demand_value = "tpop",
-           supply_df = supply,
-           supply_index = "GEOID",
-           supply_value = "tot_enrol",
-           cost_df = times,
-           cost_origin = "origin",
-           cost_dest = "dest",
-           cost_name = "cost",
-           neighbor_cost_df = times,
-           neighbor_cost_origin = "origin",
-           neighbor_cost_dest = "dest",
-           neighbor_cost_name = "cost")
-
-fn30 = weights.step_fn({10: 1, 20: 0.68, 30: 0.22})
-
-# obtain fcas
-info_2sefca = A.enhanced_two_stage_fca(name = "2sefca30", weight_fn = fn30)
-info_3sfca = A.three_stage_fca(name = "3sfca")
-
-# save data into access_df
-four_year_access_df = A.norm_access_df
-```
-
-
-# getting the data in the correct shape
-```{r}
-py$trade_school_access_df$region_name <- rownames(py$trade_school_access_df)
-
-con <- get_db_conn(db_pass = "rsu8zvrsu8zv")
-health_district_geoids <- st_read(con, query = "SELECT * FROM dc_common.va_hd_sdad_2021_virginia_health_district_geoids")
-dbDisconnect(con)
-
-trade_data <- merge(health_district_geoids, py$trade_school_access_df, by = "region_name")
-
-trade_data$norm_3sfca <- (trade_data$`3sfca_tot_enrol` - min(trade_data$`3sfca_tot_enrol`, na.rm = T)) / (max(trade_data$`3sfca_tot_enrol`, na.rm = T) - min(trade_data$`3sfca_tot_enrol`, na.rm = T)) * 100
-trade_data$perc_3sfca <- ecdf(trade_data$`3sfca_tot_enrol`)(trade_data$`3sfca_tot_enrol`) * 100
-
-trade_data$norm_2sefca <- (trade_data$`2sefca30_tot_enrol` - min(trade_data$`2sefca30_tot_enrol`, na.rm = T)) / (max(trade_data$`2sefca30_tot_enrol`, na.rm = T) - min(trade_data$`2sefca30_tot_enrol`, na.rm = T)) * 100
-trade_data$perc_2sefca <- ecdf(trade_data$`2sefca30_tot_enrol`)(trade_data$`2sefca30_tot_enrol`) * 100
-
-trade.supply <- trade_hd_supply %>%
-  group_by(health_district) %>%
-  mutate(n = sum(tot_enrol)) %>%
-  ungroup() %>%
-  select(health_district, n) %>%
-  distinct(health_district, .keep_all = T) %>%
-  merge(trade_data, by.x = "health_district", by.y = "region_name", all.y = T) %>%
-  rename(capacity = n)
-
-trade.supply <- trade.supply %>%
-  gather(measure, value, c(`2sefca30_tot_enrol`, norm_2sefca, perc_2sefca, `3sfca_tot_enrol`, norm_3sfca, perc_3sfca, capacity)) %>%
-  mutate(year = "2019",
-         measure_type = ifelse(measure %in% c("perc_2sefca", "perc_3sfca"), "percentile", ifelse(measure == "capacity", "count", "index")),
-         measure_units = as.character(NA)) %>%
-  rename(region_name = health_district) %>%
-  relocate("geoid", "region_type", "region_name", "year", "measure", "value", "measure_type", "measure_units")
-```
-
-
-```{r}
-py$two_year_access_df$region_name <- rownames(py$two_year_access_df)
-
-con <- get_db_conn(db_pass = "rsu8zvrsu8zv")
-health_district_geoids <- st_read(con, query = "SELECT * FROM dc_common.va_hd_sdad_2021_virginia_health_district_geoids")
-dbDisconnect(con)
-
-twoyear_data <- merge(health_district_geoids, py$two_year_access_df, by = "region_name")
-
-twoyear_data$norm_3sfca <- (twoyear_data$`3sfca_tot_enrol` - min(twoyear_data$`3sfca_tot_enrol`, na.rm = T)) / (max(twoyear_data$`3sfca_tot_enrol`, na.rm = T) - min(twoyear_data$`3sfca_tot_enrol`, na.rm = T)) * 100
-twoyear_data$perc_3sfca <- ecdf(twoyear_data$`3sfca_tot_enrol`)(twoyear_data$`3sfca_tot_enrol`) * 100
-
-twoyear_data$norm_2sefca <- (twoyear_data$`2sefca30_tot_enrol` - min(twoyear_data$`2sefca30_tot_enrol`, na.rm = T)) / (max(twoyear_data$`2sefca30_tot_enrol`, na.rm = T) - min(twoyear_data$`2sefca30_tot_enrol`, na.rm = T)) * 100
-twoyear_data$perc_2sefca <- ecdf(twoyear_data$`2sefca30_tot_enrol`)(twoyear_data$`2sefca30_tot_enrol`) * 100
-
-twoyear_data.supply <- two_year_hd_supply %>%
-  group_by(health_district) %>%
-  mutate(n = sum(tot_enrol)) %>%
-  ungroup() %>%
-  select(health_district, n) %>%
-  distinct(health_district, .keep_all = T) %>%
-  merge(twoyear_data, by.x = "health_district", by.y = "region_name", all.y = T) %>%
-  rename(capacity = n)
-
-twoyear_data.supply <- twoyear_data.supply %>%
-  gather(measure, value, c(`2sefca30_tot_enrol`, norm_2sefca, perc_2sefca, `3sfca_tot_enrol`, norm_3sfca, perc_3sfca, capacity)) %>%
-  mutate(year = "2019",
-         measure_type = ifelse(measure %in% c("perc_2sefca", "perc_3sfca"), "percentile", ifelse(measure == "capacity", "count", "index")),
-         measure_units = as.character(NA)) %>%
-  rename(region_name = health_district) %>%
-  relocate("geoid", "region_type", "region_name", "year", "measure", "value", "measure_type", "measure_units")
-```
-
-
-```{r}
-py$four_year_access_df$region_name <- rownames(py$four_year_access_df)
-
-con <- get_db_conn(db_pass = "rsu8zvrsu8zv")
-health_district_geoids <- st_read(con, query = "SELECT * FROM dc_common.va_hd_sdad_2021_virginia_health_district_geoids")
-dbDisconnect(con)
-
-fouryear_data <- merge(health_district_geoids, py$two_year_access_df, by = "region_name")
-
-fouryear_data$norm_3sfca <- (fouryear_data$`3sfca_tot_enrol` - min(fouryear_data$`3sfca_tot_enrol`, na.rm = T)) / (max(fouryear_data$`3sfca_tot_enrol`, na.rm = T) - min(twoyear_data$`3sfca_tot_enrol`, na.rm = T)) * 100
-fouryear_data$perc_3sfca <- ecdf(fouryear_data$`3sfca_tot_enrol`)(fouryear_data$`3sfca_tot_enrol`) * 100
-
-fouryear_data$norm_2sefca <- (fouryear_data$`2sefca30_tot_enrol` - min(fouryear_data$`2sefca30_tot_enrol`, na.rm = T)) / (max(fouryear_data$`2sefca30_tot_enrol`, na.rm = T) - min(fouryear_data$`2sefca30_tot_enrol`, na.rm = T)) * 100
-fouryear_data$perc_2sefca <- ecdf(fouryear_data$`2sefca30_tot_enrol`)(fouryear_data$`2sefca30_tot_enrol`) * 100
-
-fouryear_data.supply <- four_year_hd_supply %>%
-  group_by(health_district) %>%
-  mutate(n = sum(tot_enrol)) %>%
-  ungroup() %>%
-  select(health_district, n) %>%
-  distinct(health_district, .keep_all = T) %>%
-  merge(fouryear_data, by.x = "health_district", by.y = "region_name", all.y = T) %>%
-  rename(capacity = n)
-
-fouryear_data.supply <- fouryear_data.supply %>%
-  gather(measure, value, c(`2sefca30_tot_enrol`, norm_2sefca, perc_2sefca, `3sfca_tot_enrol`, norm_3sfca, perc_3sfca, capacity)) %>%
-  mutate(year = "2019",
-         measure_type = ifelse(measure %in% c("perc_2sefca", "perc_3sfca"), "percentile", ifelse(measure == "capacity", "count", "index")),
-         measure_units = as.character(NA)) %>%
-  rename(region_name = health_district) %>%
-  relocate("geoid", "region_type", "region_name", "year", "measure", "value", "measure_type", "measure_units")
-```
-
-
-```{r}
-source("~/git/VDH/src/helper_functions.R")
-con <- get_db_conn(db_pass = "rsu8zvrsu8zv")
-
-# health district
-dc_dbWriteTable(con, "dc_education_training", "va_hd_nces_2019_trade_schools_access_scores", trade.supply)
-dc_dbWriteTable(con, "dc_education_training", "va_hd_nces_2019_2year_colleges_access_scores", twoyear_data.supply)
-dc_dbWriteTable(con, "dc_education_training", "va_hd_nces_2019_4year_colleges_access_scores", fouryear_data.supply)
-
-dbDisconnect(con)
-```
-
-
-# do we look at mean and median drive times to 2-year colleges, 4-year colleges, and trade schools for all 3 levels of geography...
-# Health district closest 5/10
+# Health district closest 5 and 10
 ```{r}
 trade_hd_times.5 <- trade_times %>%
   group_by(origin) %>%
@@ -684,7 +236,7 @@ trade_hd_times.5 <- trade_times %>%
          year = "2021",
          measure_type = ifelse(measure %in% c("mean_drive_time_top5"), "mean", "median"),
          measure_units = "minutes") %>%
-  merge(health_district_geoids[, c("geoid", "region_name")], by.x = "origin", by.y = "region_name") %>%
+  merge(health_district_2[, c("geoid", "health_district")], by.x = "origin", by.y = "health_district") %>%
   rename(region_name = origin) %>%
   relocate("geoid", "region_type", "region_name", "year", "measure", "value", "measure_type", "measure_units")
 trade_hd_times.10 <- trade_times %>%
@@ -697,7 +249,7 @@ trade_hd_times.10 <- trade_times %>%
          year = "2021",
          measure_type = ifelse(measure %in% c("mean_drive_time_top10"), "mean", "median"),
          measure_units = "minutes") %>%
-  merge(health_district_geoids[, c("geoid", "region_name")], by.x = "origin", by.y = "region_name") %>%
+  merge(health_district_2[, c("geoid", "health_district")], by.x = "origin", by.y = "health_district") %>%
   rename(region_name = origin) %>%
   relocate("geoid", "region_type", "region_name", "year", "measure", "value", "measure_type", "measure_units")
 trade_hd_times <- rbind(trade_hd_times.5, trade_hd_times.10)
@@ -712,7 +264,7 @@ twoyear_hd_times.5 <- twoyear_times %>%
          year = "2021",
          measure_type = ifelse(measure %in% c("mean_drive_time_top5"), "mean", "median"),
          measure_units = "minutes") %>%
-  merge(health_district_geoids[, c("geoid", "region_name")], by.x = "origin", by.y = "region_name") %>%
+  merge(health_district_2[, c("geoid", "health_district")], by.x = "origin", by.y = "health_district") %>%
   rename(region_name = origin) %>%
   relocate("geoid", "region_type", "region_name", "year", "measure", "value", "measure_type", "measure_units")
 twoyear_hd_times.10 <- twoyear_times %>%
@@ -725,7 +277,7 @@ twoyear_hd_times.10 <- twoyear_times %>%
          year = "2021",
          measure_type = ifelse(measure %in% c("mean_drive_time_top10"), "mean", "median"),
          measure_units = "minutes") %>%
-  merge(health_district_geoids[, c("geoid", "region_name")], by.x = "origin", by.y = "region_name") %>%
+  merge(health_district_2[, c("geoid", "health_district")], by.x = "origin", by.y = "health_district") %>%
   rename(region_name = origin) %>%
   relocate("geoid", "region_type", "region_name", "year", "measure", "value", "measure_type", "measure_units")
 twoyear_hd_times <- rbind(twoyear_hd_times.5, twoyear_hd_times.10)
@@ -740,7 +292,7 @@ fouryear_hd_times.5 <- fouryear_times %>%
          year = "2021",
          measure_type = ifelse(measure %in% c("mean_drive_time_top5"), "mean", "median"),
          measure_units = "minutes") %>%
-  merge(health_district_geoids[, c("geoid", "region_name")], by.x = "origin", by.y = "region_name") %>%
+  merge(health_district_2[, c("geoid", "health_district")], by.x = "origin", by.y = "health_district") %>%
   rename(region_name = origin) %>%
   relocate("geoid", "region_type", "region_name", "year", "measure", "value", "measure_type", "measure_units")
 fouryear_hd_times.10 <- fouryear_times %>%
@@ -753,21 +305,14 @@ fouryear_hd_times.10 <- fouryear_times %>%
          year = "2021",
          measure_type = ifelse(measure %in% c("mean_drive_time_top10"), "mean", "median"),
          measure_units = "minutes") %>%
-  merge(health_district_geoids[, c("geoid", "region_name")], by.x = "origin", by.y = "region_name") %>%
+  merge(health_district_2[, c("geoid", "health_district")], by.x = "origin", by.y = "health_district") %>%
   rename(region_name = origin) %>%
   relocate("geoid", "region_type", "region_name", "year", "measure", "value", "measure_type", "measure_units")
 fouryear_hd_times <- rbind(fouryear_hd_times.5, fouryear_hd_times.10)
-
-#### FNISH PUTTING DRIVE TIMES IN THE DATABSE!!!
-# source("~/git/VDH/src/helper_functions.R")
-# con <- get_db_conn(db_pass = "rsu8zvrsu8zv")
-# dc_dbWriteTable(con, "dc_education_training", "va_hd_osrm_2021_drive_times_nearest_trade_schools", trade_hd_times)
-# dc_dbWriteTable(con, "dc_education_training", "va_hd_osrm_2021_drive_times_nearest_2year_colleges", twoyear_hd_times)
-# dc_dbWriteTable(con, "dc_education_training", "va_hd_osrm_2021_drive_times_nearest_4year_colleges", fouryear_hd_times)
-# dbDisconnect(con)
 ```
 
 # repeating everything from above for counties!!!
+
 ```{r}
 # get population under 15 years old
 va.co <- get_acs(geography = "county",
@@ -795,7 +340,7 @@ new_demand <- va.co.utm
 
 ```{r}
 ### trade schools
-trade_schools <- read.csv("less_two_geoid_ct.csv")
+trade_schools <- fread("/project/biocomplexity/sdad/projects_data/mc/data_commons/dc_education_training/va_post_hs_education/less_two_geoid_ct.csv")
 trade_schools <- trade_schools[, c("tot_enrol", "latitude", "longitude", "geoid")]
 supply <- trade_schools %>%
   rename(county = geoid)
@@ -844,7 +389,7 @@ trade_co_times$origin <- rep(new_demand$GEOID, times = dim(supply)[1])
 
 
 ### two-year colleges
-two_year_colleges <- read.csv("two_year_geoid_ct.csv")
+two_year_colleges <- fread("/project/biocomplexity/sdad/projects_data/mc/data_commons/dc_education_training/va_post_hs_education/two_year_geoid_ct.csv")
 two_year_colleges <- two_year_colleges[, c("tot_enrol", "latitude", "longitude", "geoid")]
 supply <- two_year_colleges %>%
   rename(county = geoid)
@@ -893,7 +438,7 @@ two_year_co_times$origin <- rep(new_demand$GEOID, times = dim(supply)[1])
 
 
 ### four-year colleges
-four_year_colleges <- read.csv("four_year_geoid_ct.csv")
+four_year_colleges <- fread("/project/biocomplexity/sdad/projects_data/mc/data_commons/dc_education_training/va_post_hs_education/four_year_geoid_ct.csv")
 four_year_colleges <- four_year_colleges[, c("tot_enrol", "latitude", "longitude", "geoid")]
 supply <- four_year_colleges %>%
   rename(county = geoid)
@@ -1032,17 +577,11 @@ fouryear_co_times.10 <- four_year_co_times %>%
          region_name = NAME) %>%
   relocate("geoid", "region_type", "region_name", "year", "measure", "value", "measure_type", "measure_units")
 fouryear_co_times <- rbind(fouryear_co_times.5, fouryear_co_times.10)
-
-# source("~/git/VDH/src/helper_functions.R")
-# con <- get_db_conn(db_pass = "rsu8zvrsu8zv")
-# dc_dbWriteTable(con, "dc_education_training", "va_ct_osrm_2021_drive_times_nearest_trade_schools", trade_co_times.final)
-# dc_dbWriteTable(con, "dc_education_training", "va_ct_osrm_2021_drive_times_nearest_2year_colleges", twoyear_co_times)
-# dc_dbWriteTable(con, "dc_education_training", "va_ct_osrm_2021_drive_times_nearest_4year_colleges", fouryear_co_times)
-# dbDisconnect(con)
 ```
 
 
 # repeating everything from above for tracts!!!
+
 ```{r}
 # get population under 15 years old
 va.tr <- get_acs(geography = "tract",
@@ -1068,6 +607,26 @@ new_demand <- va.tr.utm
 ```
 
 ### I only have county level geoid - using this code chunk to go from long/lat to tract level geoid
+# so goal with python code below is to quickly get tract geoids!
+
+# load packages in python
+
+```{python}
+# generic imports
+import numpy as np
+import pandas as pd
+
+# geospatial imports
+import geopandas as gpd
+import pygeos
+from pygeos import box, area, intersection
+
+# FCA pakage
+from access import Access, weights
+```
+
+# get tract geoid
+
 ```{python}
 ### ADD GEOID COLUMN
 # create daycare locations array
@@ -1076,7 +635,7 @@ def get_tract_geoid(df):
   pg_schools_geoms = np.array([pygeos.Geometry(str(schools.geometry[i])) for i in range(len(schools))]) # convert daycare location to Pygeos
   
   # create Virginia block group array
-  va_tracts = gpd.read_file("va_tr.shp") # read in virginia block group data
+  va_tracts = gpd.read_file("/project/biocomplexity/sdad/projects_data/mc/data_commons/dc_education_training/va_tr.shp") # read in virginia block group data
   va_tracts = va_tracts.loc[va_tracts.geometry.notna()].reset_index(drop = True) # drop empty geometries for geographies
   pg_geog_geoms = np.array([pygeos.Geometry(str(va_tracts.geometry[i])) for i in range(len(va_tracts))]) # convert to Pygeos
   
@@ -1094,10 +653,9 @@ def get_tract_geoid(df):
   # create simplified supply data with GEOID, longitude, latitude, and capacity
   supply = schools[['GEOID', 'longitude', 'latitude', 'tot_enrol']]
   return supply
-  
 ```
 
-
+# get drive times for schools at tract level
 
 ```{r}
 supply <- py$get_tract_geoid(trade_schools)
@@ -1237,6 +795,7 @@ colnames(four_year_tr_times) <- c("origin", "dest", "cost")
 four_year_tr_times$origin <- rep(new_demand$GEOID, times = dim(supply)[1])
 ```
 
+# tract level 5 and 10 closest
 
 ```{r}
 trade_tr_times.5 <- trade_tr_times %>%
@@ -1334,14 +893,24 @@ fouryear_tr_times.10 <- four_year_tr_times %>%
          region_name = NAME) %>%
   relocate("geoid", "region_type", "region_name", "year", "measure", "value", "measure_type", "measure_units")
 fouryear_tr_times <- rbind(fouryear_tr_times.5, fouryear_tr_times.10)
+```
 
+# send data to db
+
+```{r}
 source("~/git/VDH/src/helper_functions.R")
 con <- get_db_conn(db_pass = "rsu8zvrsu8zv")
+dc_dbWriteTable(con, "dc_education_training", "va_hd_osrm_2021_drive_times_nearest_trade_schools", trade_hd_times)
+dc_dbWriteTable(con, "dc_education_training", "va_hd_osrm_2021_drive_times_nearest_2year_colleges", twoyear_hd_times)
+dc_dbWriteTable(con, "dc_education_training", "va_hd_osrm_2021_drive_times_nearest_4year_colleges", fouryear_hd_times)
+
+dc_dbWriteTable(con, "dc_education_training", "va_ct_osrm_2021_drive_times_nearest_trade_schools", trade_co_times.final)
+dc_dbWriteTable(con, "dc_education_training", "va_ct_osrm_2021_drive_times_nearest_2year_colleges", twoyear_co_times)
+dc_dbWriteTable(con, "dc_education_training", "va_ct_osrm_2021_drive_times_nearest_4year_colleges", fouryear_co_times)
+
 dc_dbWriteTable(con, "dc_education_training", "va_tr_osrm_2021_drive_times_nearest_trade_schools", trade_tr_times.final)
 dc_dbWriteTable(con, "dc_education_training", "va_tr_osrm_2021_drive_times_nearest_2year_colleges", twoyear_tr_times)
 dc_dbWriteTable(con, "dc_education_training", "va_tr_osrm_2021_drive_times_nearest_4year_colleges", fouryear_tr_times)
 dbDisconnect(con)
 ```
-
-
 
