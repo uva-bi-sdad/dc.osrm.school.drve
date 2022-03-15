@@ -1,0 +1,34 @@
+{
+  "name": "dc.osrm.school.drve",
+  "data": [
+    {
+      "name": "osm_post_hs_drive_times",
+      "variables": ["mean_drive_time_top5", "median_drive_time_top5", "mean_drive_time_top10", "median_drive_time_top10"],
+      "file": "va_hdcttr_2021_osm_post_hs_drive_times.csv.xz",
+      "size": 122428,
+      "md5": "874dae99917dbe39d37c3512655f5109"
+    },
+    {
+      "name": "post_hs_drive_times",
+      "variables": ["mean_drive_time_top5", "median_drive_time_top5", "mean_drive_time_top10", "median_drive_time_top10"],
+      "file": "va_hdcttr_osm_2022_post_hs_drive_times.csv.xz",
+      "size": 123564,
+      "md5": "4b470815858ad93e41da38594c730cbe"
+    }
+  ],
+  "distributions": {
+    "dataverse": {
+      "id": 55852,
+      "doi": "doi:10.18130/V3/JVAP9L",
+      "server": "https://dataverse.lib.virginia.edu/",
+      "data": [
+        {
+          "file": "va_hdcttr_osm_2022_post_hs_drive_times.csv.xz",
+          "id": 55957,
+          "size": 123564,
+          "md5": "4b470815858ad93e41da38594c730cbe"
+        }
+      ]
+    }
+  }
+}
